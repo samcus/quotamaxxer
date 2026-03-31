@@ -35,6 +35,7 @@ Install globally, and require 0.01% of your brain power to configure:
 ```bash
 npm install -g quotamaxxer
 ```
+*(Windows users: You can run QuotaMaxxer commands from PowerShell, or Command Prompt (CMD) without issue.)*
 
 ## 🛠️ Usage
 

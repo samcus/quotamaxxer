@@ -11,7 +11,12 @@
     "link": "npm link",
     "unlink": "npm unlink -g quotamaxxer"
   },
-  "keywords": ["claude", "quota", "cron", "automation"],
+  "keywords": [
+    "claude",
+    "quota",
+    "cron",
+    "automation"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=18"

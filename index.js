@@ -22,7 +22,7 @@ const TASK_NAME = 'QuotaMaxxer';   // Windows Task Scheduler task name
 const DEFAULT_TIME = '06:30';
 
 const IS_WINDOWS = process.platform === 'win32';
-const IS_MACOS   = process.platform === 'darwin';
+const IS_MACOS = process.platform === 'darwin';
 
 // macOS uses launchd (Launch Agents) instead of cron — runs in the user session
 // with full keychain access, identical to opening a terminal.
@@ -75,10 +75,21 @@ function spawnOpts(extra = {}) {
   return { encoding: 'utf8', shell: IS_WINDOWS, ...extra };
 }
 
+function execClaude(argsArray, extraOpts = {}) {
+  if (IS_WINDOWS) {
+    // Quote arguments safely for cmd
+    const safeArgs = argsArray.map(a => /[\s"]/.test(a) ? '"' + a.replace(/(["\\])/g, '\\$1') + '"' : a).join(' ');
+    // Execute as a single string to avoid DEP0190 and keep args properly quoted
+    return spawnSync('claude ' + safeArgs, spawnOpts(extraOpts));
+  }
+  return spawnSync('claude', argsArray, spawnOpts(extraOpts));
+}
+
+
 // ─── Preflight checks ────────────────────────────────────────────────────────
 
 function assertClaudeInstalled() {
-  const result = spawnSync('claude', ['--version'], spawnOpts());
+  const result = execClaude(['--version']);
   if (result.error || result.status !== 0) {
     const msg = 'Claude Code not found — the operation collapses before it begins.';
     log('FAILURE', msg);
@@ -91,7 +102,7 @@ function assertClaudeInstalled() {
 }
 
 function assertClaudeLoggedIn() {
-  const result = spawnSync('claude', ['auth', 'status'], spawnOpts());
+  const result = execClaude(['auth', 'status']);
   if (result.status !== 0 || (result.stdout && result.stdout.includes('not logged in'))) {
     const msg = 'Not authenticated — the servant cannot work without credentials.';
     log('FAILURE', msg);
@@ -110,11 +121,7 @@ function runPing() {
 
   console.log('⚡ Deploying the 8-bit wisdom payload...');
 
-  const result = spawnSync(
-    'claude',
-    ['-p', PING_PROMPT, '--output-format', 'text'],
-    spawnOpts({ timeout: 60_000 })
-  );
+  const result = execClaude(['-p', PING_PROMPT, '--output-format', 'text'], { timeout: 60_000 });
 
   if (result.error || result.status !== 0) {
     const parts = [
@@ -171,7 +178,7 @@ function initCronUnix(timeStr) {
   const script = path.resolve(__filename);
   // Bake in PATH and HOME so cron can find `claude` and its auth config.
   const userPath = (process.env.PATH || '').replace(/"/g, '');
-  const homeDir  = os.homedir();
+  const homeDir = os.homedir();
   const cronLine = `${m} ${h} * * * HOME="${homeDir}" PATH="${userPath}" ${bin} ${script} _ping ${CRON_TAG}`;
 
   let tab = getCurrentCrontab();
@@ -205,7 +212,7 @@ function xmlEscape(s) {
 
 function initLaunchdMac(timeStr) {
   const { h, m } = parseCronTime(timeStr);
-  const bin    = process.execPath;
+  const bin = process.execPath;
   const script = path.resolve(__filename);
 
   if (fs.existsSync(LAUNCHD_PLIST)) {
@@ -261,7 +268,7 @@ function initLaunchdMac(timeStr) {
 
 function stopLaunchdMac() {
   if (!fs.existsSync(LAUNCHD_PLIST)) {
-    console.log('\x1b[33m⚠ No QuotaMaxxer Launch Agent found. Were you even maxxing?\x1b[0m');
+    console.log('\x1b[33m⚠ No QuotaMaxxer Launch Agent found. Were you even maxxing bro?\x1b[0m');
     return;
   }
   spawnSync('launchctl', ['unload', LAUNCHD_PLIST], { encoding: 'utf8' });
@@ -284,17 +291,21 @@ function initCronWindows(timeStr) {
   const taskRun = `${bin} ${script} _ping`;
 
   // Warn if a task already exists before overwriting.
-  const existing = spawnSync('schtasks', ['/query', '/tn', TASK_NAME, '/fo', 'LIST'], { encoding: 'utf8', shell: true });
+  const existing = spawnSync('schtasks', ['/query', '/tn', TASK_NAME, '/fo', 'LIST'], { encoding: 'utf8', shell: false });
   if (existing.status === 0) {
     const match = existing.stdout.match(/Next Run Time:\s*(.+)/i);
-    console.log(`\x1b[33m⚠ Replacing existing QuotaMaxxer schedule${match ? ` (next was: ${match[1].trim()})` : ''}.\x1b[0m`);
+    if (match) {
+      console.log(`\x1b[33m⚠ Previous servant deposed (next was: ${match[1].trim()}). New orders: ${startTime}.\x1b[0m`);
+    } else {
+      console.log(`\x1b[33m⚠ Existing QuotaMaxxer schedule found and replaced. The machine is loyal, but not sentimental.\x1b[0m`);
+    }
   }
 
   // /f forces overwrite of an existing task with the same name.
   const result = spawnSync(
     'schtasks',
     ['/create', '/tn', TASK_NAME, '/tr', taskRun, '/sc', 'DAILY', '/st', startTime, '/f'],
-    { encoding: 'utf8', shell: true }
+    { encoding: 'utf8', shell: false }
   );
 
   if (result.status !== 0) {
@@ -326,10 +337,10 @@ function stopCronWindows() {
   const result = spawnSync(
     'schtasks',
     ['/delete', '/tn', TASK_NAME, '/f'],
-    { encoding: 'utf8', shell: true }
+    { encoding: 'utf8', shell: false }
   );
   if (result.status !== 0) {
-    console.log('\x1b[33m⚠ No QuotaMaxxer scheduled task found. Were you even maxxing?\x1b[0m');
+    console.log('\x1b[33m⚠ No QuotaMaxxer scheduled task found. Were you even maxxing bro?\x1b[0m');
     return;
   }
   log('SUCCESS', 'Servant honorably discharged — daily payload disabled.');
@@ -370,7 +381,7 @@ function getScheduleStatus() {
     const r = spawnSync(
       'schtasks',
       ['/query', '/tn', TASK_NAME, '/fo', 'LIST'],
-      { encoding: 'utf8', shell: true }
+      { encoding: 'utf8', shell: false }
     );
     if (r.status !== 0) return null;
     const match = r.stdout.match(/Next Run Time:\s*(.+)/i);
@@ -390,7 +401,7 @@ function showStatus() {
   console.log('─'.repeat(40));
 
   // Claude installed?
-  const ver = spawnSync('claude', ['--version'], spawnOpts());
+  const ver = execClaude(['--version']);
   if (ver.error || ver.status !== 0) {
     console.log('  Claude Code : \x1b[31m✗ Absent. Completely absent.\x1b[0m');
   } else {
@@ -398,7 +409,7 @@ function showStatus() {
   }
 
   // Logged in?
-  const auth = spawnSync('claude', ['auth', 'status'], spawnOpts());
+  const auth = execClaude(['auth', 'status']);
   const loggedIn = auth.status === 0 && !(auth.stdout || '').includes('not logged in');
   console.log(`  Auth        : ${loggedIn ? '\x1b[32m✓ Credentialed. The servant has a badge.\x1b[0m' : '\x1b[31m✗ Not logged in. The servant has no badge and no future.\x1b[0m'}`);
 
@@ -451,8 +462,8 @@ function runTest() {
     : 0;
 
   // Poll for a new log entry, up to 3 minutes.
-  const TIMEOUT  = 180_000;
-  const INTERVAL =   3_000;
+  const TIMEOUT = 180_000;
+  const INTERVAL = 3_000;
   const deadline = Date.now() + TIMEOUT;
   let newEntry = null;
 
@@ -476,7 +487,7 @@ function runTest() {
     spawnSync('launchctl', ['unload', LAUNCHD_PLIST], { encoding: 'utf8' });
     fs.unlinkSync(LAUNCHD_PLIST);
   } else if (IS_WINDOWS) {
-    spawnSync('schtasks', ['/delete', '/tn', TASK_NAME, '/f'], { encoding: 'utf8', shell: true });
+    spawnSync('schtasks', ['/delete', '/tn', TASK_NAME, '/f'], { encoding: 'utf8', shell: false });
   } else {
     let tab = getCurrentCrontab();
     tab = tab.split('\n').filter(l => !l.includes(CRON_TAG)).join('\n').trim();
