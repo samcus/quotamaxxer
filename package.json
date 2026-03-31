@@ -1,0 +1,19 @@
+{
+  "name": "quotamaxxer",
+  "version": "1.0.0",
+  "description": "Sophisticated, automated laziness. Maximum Claude quota efficiency.",
+  "main": "index.js",
+  "bin": {
+    "quotamaxxer": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "link": "npm link",
+    "unlink": "npm unlink -g quotamaxxer"
+  },
+  "keywords": ["claude", "quota", "cron", "automation"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
